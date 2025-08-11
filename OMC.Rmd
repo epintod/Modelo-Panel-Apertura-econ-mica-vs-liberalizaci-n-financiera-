@@ -1,0 +1,150 @@
+---
+title: "OMC"
+author: "Esteban Pinto"
+date: "2025-07-18"
+output: pdf_document
+---
+
+```{r}
+# ================================================================
+# ANÁLISIS DE DATOS DE PANEL: EFECTOS FIJOS Y ALEATORIOS
+# ================================================================
+
+# 1. Configuración inicial
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Paquetes necesarios
+library(readxl)    # Lectura de Excel
+library(dplyr)     # Manipulación de datos
+library(plm)       # Modelos de datos de panel
+library(lmtest)    # Pruebas estadísticas
+library(sandwich)  # Errores robustos
+library(car)       # Multicolinealidad
+library(tseries)   # Normalidad de residuos
+library(ggplot2)   # Visualización
+```
+
+
+```{r}
+# ------------------------------------------------
+# 2. Lectura y preparación de datos
+# ------------------------------------------------
+datos <- read_excel("Panel_datos.xlsx") %>%
+  mutate(
+    Año = as.numeric(Año),
+    Pais = as.factor(Pais),
+    ln_exports = log(Exportaciones),
+    ln_tc_real = log(tc_real),
+    ln_credito = log(credito),
+    ln_pibpc = log(pibpc)
+  )
+
+# Declarar como datos de panel
+panel_data <- pdata.frame(datos, index = c("Pais", "Año"))
+```
+
+
+```{r}
+# ------------------------------------------------
+# 3. Estimación de modelos
+# ------------------------------------------------
+modelo_fe <- plm(
+  ln_exports ~ ln_tc_real + ln_credito + ied + ln_pibpc,
+  data = panel_data, model = "within"
+)
+
+modelo_re <- plm(
+  ln_exports ~ ln_tc_real + ln_credito + ied + ln_pibpc,
+  data = panel_data, model = "random"
+)
+
+cat("\n=== RESULTADOS EFECTOS FIJOS ===\n")
+print(summary(modelo_fe))
+
+cat("\n=== RESULTADOS EFECTOS ALEATORIOS ===\n")
+print(summary(modelo_re))
+```
+
+
+```{r}
+# ------------------------------------------------
+# 4. Pruebas de especificación
+# ------------------------------------------------
+hausman_test <- phtest(modelo_fe, modelo_re)
+bp_test <- bptest(modelo_re)                   # Heterocedasticidad
+bg_test <- pbgtest(modelo_re)                  # Autocorrelación
+vif_test <- vif(lm(ln_exports ~ ln_tc_real + ln_credito + ied + ln_pibpc, data = datos))
+jb_test <- jarque.bera.test(residuals(modelo_re)) # Normalidad de residuos
+reset_test <- resettest(lm(ln_exports ~ ln_tc_real + ln_credito + ied + ln_pibpc, data = datos))
+plm_bp_test <- plmtest(modelo_re, type = "bp")  # Efectos significativos
+
+cat("\n=== PRUEBA DE HAUSMAN ===\n")
+print(hausman_test)
+
+cat("\n=== PRUEBAS ADICIONALES ===\n")
+list(
+  BP_Heterocedasticidad = bp_test,
+  BG_Autocorrelacion = bg_test,
+  VIF = vif_test,
+  Jarque_Bera = jb_test,
+  RESET = reset_test,
+  Breusch_Pagan_PL = plm_bp_test
+)
+```
+
+
+```{r}
+# ------------------------------------------------
+# 5. Errores robustos (Arellano, agrupados por país)
+# ------------------------------------------------
+robust_vcov <- vcovHC(modelo_re, method = "arellano", type = "HC1", cluster = "group")
+robust_results <- coeftest(modelo_re, vcov = robust_vcov)
+cat("\n=== COEFICIENTES CON ERRORES ROBUSTOS ===\n")
+print(robust_results)
+```
+```{r}
+# ------------------------------------------------
+# 7. Visualizaciones
+# ------------------------------------------------
+
+# Evolución temporal de exportaciones
+ggplot(datos, aes(x = Año, y = ln_exports, color = Pais)) +
+  geom_line(linewidth = 1) +
+  geom_point() +
+  labs(title = "Evolución logarítmica de Exportaciones por país",
+       x = "Año", y = "ln(Exportaciones)") +
+  theme_minimal()
+
+# Distribución del crédito
+ggplot(datos, aes(x = Pais, y = ln_credito, fill = Pais)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(title = "Distribución del Crédito Doméstico (% PIB) por país",
+       y = "ln(Crédito)", x = "País") +
+  theme_minimal()
+
+# Relación Crédito vs Exportaciones
+ggplot(datos, aes(x = ln_credito, y = ln_exports, color = Pais)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Relación entre Crédito Doméstico y Exportaciones",
+       x = "ln(Crédito)", y = "ln(Exportaciones)") +
+  theme_minimal()
+
+# Distribución de PIB per cápita
+ggplot(datos, aes(x = ln_pibpc, fill = Pais)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribución de PIB per cápita (log) por país") +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
